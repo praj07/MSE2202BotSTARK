@@ -97,7 +97,7 @@ void loop() {
   }
   if (encoder_Elevator.getRawPosition() <= -100) {
     StarkTesseractClawOpen();
-    servo_ElevatorMotor.writeMicroseconds(0);
+    servo_ElevatorMotor.writeMicroseconds(1500);
   }
   Serial.println(Hall_Reading);
   if (state_Var == 1)
@@ -107,6 +107,7 @@ void loop() {
     }
   }
 
+  //This is the actual RUNNING CODE//
   if (digitalRead(ci_Mode_Switch) == LOW)
     runtime = false;
   else
@@ -130,17 +131,21 @@ void loop() {
         StarkTurnLeft();
       }
       else if (ul_Echo_TimeB / 58 < 7 && ul_Echo_TimeF / 58 < 7) {
-        Serial.println(ul_Echo_TimeB);
-        Serial.println(ul_Echo_TimeF);
         StarkTurnRight();
       }
+      if (abs(Hall_Reading - 514) > 4){
+        state_Var++;
+      }
     }
-    else {
-      servo_RightDriveMotor.writeMicroseconds(1500);
-      servo_LeftDriveMotor.writeMicroseconds(1500);
-    }
+    if (state_Var ==2){//Moving Elevator into position
+      
   }
-  //state_Var++;
+  else {
+    servo_RightDriveMotor.writeMicroseconds(1500);
+    servo_LeftDriveMotor.writeMicroseconds(1500);
+  }
+}
+//state_Var++;
 }
 
 void PingFront()
