@@ -14,26 +14,37 @@ I2CEncoder encoder_LeftMotor;
 I2CEncoder encoder_RightMotor;
 
 //Constant pins
-const int ci_Ultrasonic_Ping = 2 ; //output Plug
-const int ci_Ultrasonic_Data = 3 ; //input Plug
+//Digital Pins
+const int ci_Ultrasonic_PingB = 2 ; //output plug back US
+const int ci_Ultrasonic_DataB = 3 ; //input plug back US
+const int ci_Ultrasonic_PingF = 4 ; //output plug front US
+const int ci_Ultrasonic_DataF = 5 ; //input plug front Us
 const int ci_Elevator = 6;
-const int ci_Mode_Button = 7;
+const int ci_Mode_Switch = 7;
 const int ci_Right_Motor = 8;
 const int ci_Left_Motor = 9 ;
 const int ci_Pyramid_Claw = 10;
 const int ci_Tesseract_Claw = 11;
 
+//Analog Pins
 const int ci_HallEffect = A0;
 const int ci_I2C_SDA = A4;
 const int ci_I2C_SCL = A5;
 
 
-unsigned long ul_Echo_Time;
+
+unsigned long ul_Echo_TimeF;
+unsigned long ul_Echo_TimeB;
+
+int Hall_Reading;
 
 long l_Elevator_Motor_Position;
+long l_Left_Motor_Position;
+long l_Right_Motor_Position;
 
-int runtime = 0;
-int buttonState = 0; 
+int state_Var = 1;
+
+bool runtime = false;
 
 void setup() {
   // put your setup code here, to run once:
@@ -42,8 +53,10 @@ void setup() {
   Serial.begin(2400);
 
   //Ultrasonics
-  pinMode(ci_Ultrasonic_Ping, OUTPUT);
-  pinMode(ci_Ultrasonic_Data, INPUT);
+  pinMode(ci_Ultrasonic_PingF, OUTPUT);
+  pinMode(ci_Ultrasonic_DataF, INPUT);
+  pinMode(ci_Ultrasonic_PingB, OUTPUT);
+  pinMode(ci_Ultrasonic_DataB, INPUT);
 
   //Drive motors
   pinMode(ci_Right_Motor, OUTPUT);
@@ -61,7 +74,7 @@ void setup() {
   pinMode(ci_Elevator, OUTPUT);
   servo_ElevatorMotor.attach(ci_Elevator);
 
-  //Set up elevator encoder
+  //Set up encoders for: Elevator, left drive motor, right motor
   encoder_Elevator.init(1 / 0 / 3.0 * MOTOR_393_SPEED_ROTATIONS, MOTOR_393_TIME_DELTA);
   encoder_Elevator.setReversed(false);
   encoder_LeftMotor.init(1 / 0 / 3.0 * MOTOR_393_SPEED_ROTATIONS, MOTOR_393_TIME_DELTA);
@@ -69,24 +82,121 @@ void setup() {
   encoder_RightMotor.init(1 / 0 / 3.0 * MOTOR_393_SPEED_ROTATIONS, MOTOR_393_TIME_DELTA);
   encoder_RightMotor.setReversed(true);
 
-  pinMode(ci_Mode_Button, INPUT);
+  //Control Pin
+  pinMode(ci_Mode_Switch, INPUT);
+  pinMode(ci_HallEffect, INPUT);
 
 }
 
 void loop() {
+  Hall_Reading = analogRead(ci_HallEffect);
+  Serial.println(encoder_Elevator.getRawPosition());
+  if (encoder_Elevator.getRawPosition() >= -100)
+  {
+    StarkElevatorUp();
+  }
+  if (encoder_Elevator.getRawPosition() <= -100) {
+    StarkTesseractClawOpen();
+    servo_ElevatorMotor.writeMicroseconds(0);
+  }
+  Serial.println(Hall_Reading);
+  if (state_Var == 1)
+  {
+    if (abs(Hall_Reading - 514) > 4) {
+      servo_TesseractClaw.write(20);
+    }
+  }
 
-  buttonState = digitalRead(ci_Mode_Button);
-  Serial.println(runtime);
-  if (buttonState == LOW) {
-    runtime++;
+  if (digitalRead(ci_Mode_Switch) == LOW)
+    runtime = false;
+  else
+    runtime = true;
+  if (runtime) {
+    if (state_Var == 0) { //Drive along right wall
+      PingBack();
+      PingFront();
+      if (ul_Echo_TimeB / 58 == 7 && ul_Echo_TimeF / 58 == 7) {
+        if (ul_Echo_TimeB == ul_Echo_TimeF) {
+          StarkGoStraight();
+        }
+        else if (ul_Echo_TimeB - ul_Echo_TimeF > 0) {
+          StarkTurnRight();
+        }
+        else if (ul_Echo_TimeB - ul_Echo_TimeF < 0) {
+          StarkTurnLeft();
+        }
+      }
+      else if (ul_Echo_TimeB / 58 > 7 && ul_Echo_TimeF / 58 > 7 ) {
+        StarkTurnLeft();
+      }
+      else if (ul_Echo_TimeB / 58 < 7 && ul_Echo_TimeF / 58 < 7) {
+        Serial.println(ul_Echo_TimeB);
+        Serial.println(ul_Echo_TimeF);
+        StarkTurnRight();
+      }
+    }
+    else {
+      servo_RightDriveMotor.writeMicroseconds(1500);
+      servo_LeftDriveMotor.writeMicroseconds(1500);
+    }
   }
-  if (runtime % 2 == 1 ) {
-    servo_RightDriveMotor.writeMicroseconds(1700);
-    servo_LeftDriveMotor.writeMicroseconds(1700);
-  }
-  else {
-    servo_RightDriveMotor.writeMicroseconds(1500);
-    servo_LeftDriveMotor.writeMicroseconds(1500);
-  }
+  //state_Var++;
+}
 
+void PingFront()
+{
+  //Ping Ultrasonic
+  //Send the Ultrasonic Range Finder a 10 microsecond pulse per tech spec
+  digitalWrite(ci_Ultrasonic_PingF, HIGH);
+  delayMicroseconds(10);  //The 10 microsecond pause where the pulse in "high"
+  digitalWrite(ci_Ultrasonic_PingF, LOW);
+  //use command pulseIn to listen to Ultrasonic_Data pin to record the
+  //time that it takes from when the Pin goes HIGH until it goes LOW
+  ul_Echo_TimeF = pulseIn(ci_Ultrasonic_DataF, HIGH, 10000);
+}
+
+void PingBack()
+{
+  //Ping Ultrasonic
+  //Send the Ultrasonic Range Finder a 10 microsecond pulse per tech spec
+  digitalWrite(ci_Ultrasonic_PingB, HIGH);
+  delayMicroseconds(10);  //The 10 microsecond pause where the pulse in "high"
+  digitalWrite(ci_Ultrasonic_PingB, LOW);
+  //use command pulseIn to listen to Ultrasonic_Data pin to record the
+  //time that it takes from when the Pin goes HIGH until it goes LOW
+  ul_Echo_TimeB = pulseIn(ci_Ultrasonic_DataB, HIGH, 10000);
+#ifdef DEBUG_ULTRASONIC_BACK
+  Serial.print("Time(microseconds):");
+  Serial.print(ul_Echo_TimeB, DEC);
+  Serial.print (", cm:");
+  Serial.println(ul_Echo_TimeB / 58);
+#endif
+}
+
+
+void StarkGoStraight() {
+  servo_RightDriveMotor.writeMicroseconds(1900);
+  servo_LeftDriveMotor.writeMicroseconds(1900);
+}
+void StarkTurnRight() {
+  servo_RightDriveMotor.writeMicroseconds(1500);
+  servo_LeftDriveMotor.writeMicroseconds(1900);
+}
+void StarkTurnLeft() {
+  servo_RightDriveMotor.writeMicroseconds(1900);
+  servo_LeftDriveMotor.writeMicroseconds(1500);
+}
+void StarkTesseractClawOpen() {
+  servo_TesseractClaw.write(150);
+}
+void StarkTesseractClawClose() {
+  servo_TesseractClaw.write(20);
+}
+void StarkElevatorUp()
+{
+  servo_ElevatorMotor.writeMicroseconds(1700);
+}
+void StarkElevatorDown()
+{
+  servo_ElevatorMotor.writeMicroseconds(1400);
 }
